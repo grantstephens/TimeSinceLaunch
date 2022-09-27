@@ -1,11 +1,6 @@
 REM Program a TSL unit and then add a record to the airtable units database
 REM Args: Label serial number of the unit to be programmed
 
-REM We need the APIKEY to access airtable, but we do not want to store it inside this batch file
-REM since then it would be exposed. So we keep it in the local machine registry under the 
-REM name `burnthis_airtable_api_key`. If you ever want to delete this key, you run the command...
-REM `REG delete HKCU\Environment /V burnthis_airtable_api_key`
-
 color
 
 REM Update delayseconds to reflect the number of seconds to add to the start time to account for
@@ -24,34 +19,12 @@ set tempfirmwarerecordfile=%tmp%\burnitfirmwarerecord.txt
 REM clear out the rrormessage variable since we use this to see if everything OK
 set "errormessage="
 
-if NOT "%burnthis_airtable_api_key%"=="" goto have_api_key
-
-@echo *** We need your Airtable API key!
-@echo *** You can get it here...
-@echo *** https://airtable.com/account
-@echo *** You only need to do this once per user/computer.
-@echo *** Note this key is stored in plaintext in the registry. 
-@echo *** Instructions for deleting removing key are
-@echo *** are in the comments of this batch file. 
-SET /p burnthis_airtable_api_key= Airtable API key or blank to quit:	
-
 REM We have to use delayed explanation here because, well, this is batch
 REM https://stackoverflow.com/questions/9102422/windows-batch-set-inside-if-not-working
 
-if "%burnthis_airtable_api_key%"=="" (
-	set errormessage=No Airtable API key set
-	goto end 
-)
 	
-REM Save for next time...
-setx burnthis_airtable_api_key %burnthis_airtable_api_key%
 
 
-:have_api_key
-
-REM Note that we hold off on setlocal so that this command window will keep  the
-REM burnthis_airtable_api_key variable as long as it is open. This is needed because
-REM setx will not set the variable for this window, only ones started in the future. 
 
 SETLOCAL
 
@@ -84,15 +57,6 @@ call md5\md5.bat %firmwarefile% >%tempfirmwarehashfile%
 set /p firmwarehash=<%tempfirmwarehashfile%
 
 
-REM Lets make sure that this firmware hash is in the airtable firmwares table
-REM We have to do this because Airtable is hokey and will not let us create a new record with a linked field
-REM unless we provide the "record ID" of the target of the linked field. :/
-
-curl\bin\curl "https://api.airtable.com/v0/app11MZ4rXXpEyFnj/Firmwares?fields=&filterByFormula=Hash='%firmwarehash%'&maxRecords=1" -H "Authorization: Bearer %burnthis_airtable_api_key%" >%tempfirmwarerecordfile%
-if errorlevel 1 (
-	set errormessage=Error with firmware record lookup request on airtable.com
-	goto end
-)
 
 set /p firmwarerecord=<%tempfirmwarerecordfile%
 
@@ -105,27 +69,6 @@ set firmwarerecordescaped=%firmwarerecord:"=Q%
 
 REM If firmware hash is found, then the returned string from airtable looks {"records":[{"id":"recG6cEJLSYWvHXHU",
 REM If not, then it looks like {"records":[]}
-
-if "%firmwarerecordescaped:~0,14%"=="{QrecordsQ:[]}" (
-	set errormessage=Firmware hash '%firmwarehash%' not found in Firmwares table on airtable.com. Add it!
-	goto end
-)
-
-if NOT "%firmwarerecordescaped:~0,19%"=="{QrecordsQ:[{QidQ:Q" (
-	set errormessage=Unexpected format for returned record ID in Firmwares table on airtable.com. 
-	goto end
-)
-
-if NOT "%firmwarerecordescaped:~36,1%"=="Q" (
-	set errormessage=Closing quote not found on returned record ID in Firmwares table on airtable.com. 
-	goto end
-)
-
-REM Ok, now we finally have the recordID we need to give airtable for it to let us create a record in Units. 
-
-set firwarerecordid=%firmwarerecordescaped:~19,17%
-
-
 REM Lets capture the device ID from the ATMEGA chip
 REM https://electronics.stackexchange.com/questions/414087/how-can-you-read-out-the-serial-number-of-an-xmega-chip-in-a-batch-file-during-p
 "C:\Program Files (x86)\Atmel\Studio\7.0\atbackend\atprogram.exe" --tool avrispmk2 --interface pdi --device atxmega128b3 read --prodsignature --offset 0x08 --size 11 --format hex --file %tempdeviceidfile%
@@ -205,4 +148,3 @@ del %tempfirmwarerecordfile%
 )
 
 @ENDLOCAL
-
